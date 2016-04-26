@@ -24,7 +24,8 @@ end
 local defaults = {
   secret            = ngx.var.jwt_secret,
   secret_is_base64  = enabled(ngx.var.jwt_secret_is_base64 or false),
-  cookie_name       = "id_token"
+  issuer            = ngx.var.jwt_issuer,
+  cookie_name       = ngx.var.jwt_cookie or "id_token"
 }
 
 if defaults.secret ~= nil and defaults.secret_is_base64 then
@@ -38,6 +39,8 @@ function M.auth(opts)
   local o, d = opts or defaults, defaults
   local cookie_name = o.cookie_name or d.cookie_name
   local secret_is_base64 = o.secret_is_base64 or d.secret_is_base64
+  local valid_issuer = o.valid_issuer or d.valid_issuer
+  local grace_period = o.grace_period or 120
   local secret = o.secret
   if secret ~= nil then
     if secret_is_base64 then secret = decode_secret(secret) end
@@ -45,7 +48,7 @@ function M.auth(opts)
     secret = d.secret
   end
 
-  local claim_specs = opts.claim_specs
+  local claim_specs = o.claim_specs
 
   -- check Authorization request header
   local header = ngx.var.http_Authorization
@@ -88,7 +91,15 @@ function M.auth(opts)
   end
 
   -- require valid JWT
-  local jwt_obj = jwt:verify(secret, id_token, 0)
+  local verify_opts = {
+    lifetime_grace_period = grace_period,
+    require_exp_claim = true
+  }
+  if valid_issuer then
+    verify_opts.valid_issuer = { valid_issuer }
+  end
+  local jwt_obj = jwt:verify(secret, id_token, verify_opts)
+
   if jwt_obj.verified == false then
     err = {
       code = 401,
